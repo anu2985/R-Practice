@@ -1,0 +1,799 @@
+---
+title: "Cars Project"
+author: "Anupama Rathore"
+date: "19/07/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+
+
+toload_libraries <- c("reshape2", "rpsychi", "car", "psych", "corrplot", "forecast", "GPArotation", "psy", "MVN", "DataExplorer", "ppcor", "Metrics", "foreign", "MASS", "lattice", "nortest", "Hmisc","factoextra", "nFactors")
+#new.packages <- toload_libraries[!(toload_libraries %in% installed.packages()[,"Package"])]
+#if(length(new.packages)) install.packages(new.packages)
+lapply(toload_libraries, require, character.only= TRUE)
+library(funModeling)
+library(Hmisc)
+#install.packages("RColorBrewer")
+library(RColorBrewer)
+library(PerformanceAnalytics)
+library(nFactors)
+library(psych)
+library(flextable)
+library(officer)
+library(GGally)
+library(caTools)
+library(data.table)
+library(ROCR)
+library(class)
+library(gmodels)
+library(naivebayes)
+library(gridExtra)
+library(caret)
+
+```
+
+
+# Introduction
+
+Employee Mode of Transport is often a problem faced by all companies. In this project, we understand what mode of transport employees prefers to commute to their office.
+
+The data has 444 observations and 9 variables. Variable **Transport** has three modes - *car*, *public transport* and *two wheeler*; from which we would use *car* as  the Target Variable. There are five variables that are factor including the Target and rest are numeric variables.
+
+The data has information of employees, about their mode of transport as well as their personal and professional details like age, salary, work exp, distance, etc.
+
+Among these 444 customers, 61 customers used car, 83 used two wheelers and around 300 used Public transport. Car usage accounts for (= 13..73%). 
+
+## Problem Statement
+To build models in order to predict whether or not an employee will use Car as a mode of transport. Also, which variables are a significant predictor behind this decision?  
+
+  
+### Description of the Data  
+```{r echo=FALSE}
+cars=read.csv("Cars_edited.csv")
+str(cars)
+```
+
+Quick look of the data gives an impression about the variables,They are : Age, Gender, Occupation- Engineer , MBA, Work Experience , Salary, Distance from home to office, License and Transport which is also the mode to commute.looking at the summary for each of the variables;  
+
+```{r}
+summary(cars)
+dim(cars)
+```
+
+The *chr* variables needs to be converted to factor - Gender, Engineer, MBA, License and Transport.  
+```{r echo=FALSE}
+#Changing data type for Gender, Engineer, MBA, License and Transport
+
+cars$Gender=as.factor(cars$Gender)
+cars$Engineer=as.factor(cars$Engineer)
+cars$MBA=as.factor(cars$MBA)
+cars$license= as.factor(cars$license)
+cars$Transport= as.factor(cars$Transport)
+
+#creating a Target variable - Car usage as 1 and other as 0
+cars$Target= ifelse(cars$Transport=="Car",1,0)
+cars$Target= as.factor(cars$Target)
+
+
+#dropping the transport variable as we use the target instead 
+cars1= cars[,-9]
+names(cars1)
+
+summary(cars1) 
+
+```
+
+Quick Explanation of the 5 point Summary:
+ * Variable Age and Distance have a normal distribution; where as Work Exp, Salary seem to skewed;
+ * Males are the majority population accounting to 71.17% 
+ * 75% of the population are Engineers and 25% of the population are MBA's
+ * 23.4% are driving license holders
+ * 13.7% are car users or car commuters  
+ 
+```{r echo= FALSE}
+
+#to check the overall profiling of all numeric variables- Age, Work.Exp, Salary and Distance
+
+carsCentraltend=profiling_num(cars1[,-c(2,8)])
+autofit(flextable(carsCentraltend))
+
+```
+A Macro level Insights that could be understood from the above table for the Numeric variables:
+1. The mean age being 27.75 and 99th percentile being 40, implies that the population is pretty young and represent the young to middle aged working class. Data looks normally distributed.
+2. Work Experience has outliers from the fact that 75% percent of the population has less than or equal to 8 years of experience and the top 5% of the population or the max experience is ranging from 19 to 21 years. This is right skewed.
+3. Mean Salary is 16.24 Lakhs per annum whereas median salary being 13.60 Lakhs per annum indicates the data is right skewed, also with a skewed value of 2.04 and kurtosis of 6.43 clearly indicates long tails at end meaning outliers in the population are present.
+4. The mean distance from office to home of the population is 11.32 kms, which indicates that mostly data is collected from the metros or people are staying not very far from their offices.  
+
+### Exploration of the Data  
+```{r echo=FALSE}
+#checking the outliers in the data
+autofit(flextable(df_status(cars1)))
+```
+
+From the above table:
+* - No missing values except one in MBA column
+* - There is a small population  around 6.5% who do have any work experience 
+* - only 13.7% of the employees use Car as their mode of transport  
+
+
+#### Overall from the above analysis, it represent the data is unbalanced with 13.7% being commuters using car as their mode of transport and 86% being non car users. This would require further treatment to make it a balanced class problem. 
+```{r echo= FALSE}
+#missing value imputation in variable MBA
+cars1[is.na(cars1)] = 0
+summary(cars1$MBA)
+attach(cars1)
+#NA values are replaced with 0
+```  
+
+#### Univariate Analysis with Histograms & Boxplots
+
+##### Histograms  
+```{r echo=FALSE}
+#Histograms
+carsNum= cars1[,c(1,5,6,7)]
+plot_num(carsNum, bins=10)
+plot_density(carsNum, title ="Density Plots")
+```
+### Salary and Work Experience are highly right skewed.  
+
+#### Boxplots  
+```{r echo=FALSE}
+
+boxplot(Age, Work.Exp, Salary, Distance,
+        main = "Multiple boxplots for comparision",
+        at = c(1,2,3,4),
+        names = c("Age", "Exp", "Sal", "Dist"),
+        las = 2, cex=0.6,
+        col = c("orange","red","green","blue"),
+        border = "brown",
+        horizontal = TRUE,
+        notch = TRUE
+)
+```
+
+Interpreting the box plots:
+* Salary and Work.Exp have quiet a number of outliers; whereas distance and Age have few.
+* 10% of the Salary data is ranging from 34 to 51 lakhs per annum,
+* 5% of the data on the highest side show that there are employees who have work experience of more than 19years; which is quite unusual but a bi-variate analysis would give a deeper sense.
+* Plot indicates that there are 10% employees who do commute from quite far a distance ranging from 16-21 kms on a daily basis.  
+
+#### Bi-Variate Analysis  
+```{r echo= FALSE}
+
+plot_boxplot(cars1, by = "Target", 
+             geom_boxplot_args = list("outlier.color" = "red"))
+
+#The above boxplot depicts that Non Car Commuters have outliers for all the four variables;
+#salary and Work experience seem to have high outliers, which would mean that there are commuters who have a higher average salary and work experience but use either 2wheeler or public transport to reach office.
+
+plot_boxplot(cars1, by = "Gender", 
+             geom_boxplot_args = list("outlier.color" = "red"))
+
+#More outliers in Male over female for variables Salary, Work.Exp; this is quit intuitive since males are more the working population, hence these insight would make it more valid.
+
+plot_boxplot(cars1, by = "Engineer", 
+             geom_boxplot_args = list("outlier.color" = "red"))
+
+
+
+plot_boxplot(cars1, by = "MBA", 
+             geom_boxplot_args = list("outlier.color" = "red"))
+
+
+plot_boxplot(cars1, by = "license", 
+             geom_boxplot_args = list("outlier.color" = "red"))
+#all car commuters have a license and there are no outliers too.
+```
+The above boxplot depicts that Non Car Commuters have outliers for all the four variables;
+Salary and Work experience seem to have high outliers, which would mean that there are commuters who have a higher average salary and work experience but use either 2wheeler or public transport to reach office.
+
+#More outliers in Male over female for variables Salary, Work.Exp; this is quit intuitive since males are more the working population, hence these insight would make it more valid.
+
+All car commuters have a license and there are no outliers too.
+
+```{r echo= FALSE}
+library(GGally)
+
+ggpairs(cars1,aes(color = Target),
+        lower = list(continuous = wrap("smooth", alpha = 0.3, size=0.1)))  
+
+chart.Correlation(carsNum, histogram = T, pch=15)
+
+
+```
+Pairs plot givens good insights about:
+  1. Salary, Work Exp, Age are highly correlated; 
+  2. Distance shows moderate correlation with the other three numeric variables as well;
+  3. Females stayed closer to work compared to males, whereas MBA's stayed closer than Engineers.
+  
+```{r echo=FALSE}
+#Understanding the behaviour of car commuters in terms of their demogs- Distance, License, MBA or Engineer and Salary
+library(gridExtra)
+p1 = ggplot(cars1, aes(Distance, fill= Target)) + geom_density(alpha=0.4) 
+p2 = ggplot(cars1, aes(Salary, fill= Target)) + geom_density(alpha=0.4)
+p3 = ggplot(cars1, aes(Age, fill= Target)) + geom_density(alpha=0.4)
+p4 = ggplot(cars1,aes(x=Gender,  fill= Target))+theme_bw()+
+  geom_bar()+labs(y="counts", title= "")
+p5 = ggplot(cars1,aes(x=MBA,  fill= Target))+theme_bw()+
+  geom_bar()+labs(y="counts", title= "")
+p6 = ggplot(cars1,aes(x=Engineer,  fill= Target))+theme_bw()+
+  geom_bar()+labs(y="counts", title= "")
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3, nrow = 2)
+```
+Interpretation:
+*-Car Commuters stay at a farther distance from work compared to non car commuters
+*-Car commuters have a higher salary band ranging from 10-50 Lakhs and also its seen that commuters ranging from 30 years and above seem to own a car
+*-Males own cars more than females
+*-Non MBAs own cars more than MBA's; Engineers have more car owners
+
+```{r echo=FALSE}
+
+
+chisq.test(table(Gender,Target))
+chisq.test(table(MBA,Target))
+chisq.test(table(Engineer,Target))
+chisq.test(table(license,Target))
+
+```
+
+Based on the **Chi-Square tests** for the categorical variables, except for license, all other categorical variables are non significant for an employee to use a car to commute to office.
+
+### Data Preparation & Partitioning  
+```{r echo=FALSE}
+
+#attach(cars1)
+table(cars1$Target)
+sum(Target== 1)/nrow(cars1)
+
+
+
+#set.seed(300)
+library(caTools)
+
+
+set.seed(400)
+index<-createDataPartition(cars1$Target, p=0.7,list = FALSE,times = 1)
+cars.train<-cars1[index,]
+cars.test<-cars1[-index,]
+
+#attach(cars.train)
+prop.table(table(cars.train$Target))
+prop.table(table(cars.test$Target))
+#data is split in a ratio of 70:30 with train and test.
+
+## Check split consistency
+sum(cars.train$Target==1)/nrow(cars.train)
+sum(cars.test$Target==1)/nrow(cars.test)
+sum(Target==1) / nrow(cars1)
+```
+
+Data split should have similar percent of car usage Vs non car users and hence this achieved with a split of 70:30 into train and test.
+13.73% are cars commuters i.e. 1's and others are set as 0's. since its biased data, we will try **SMOTE** as a balancing technique and check for the results running on logistic, KNN and Naive Bayes Models
+
+#### SMOTE Technique
+```{r echo=FALSE}
+library(DMwR)
+## SMOTE technique
+cars.smote<-SMOTE(Target~., cars.train, perc.over = 250,perc.under = 150) #with this, there will be an equal split of 0.5 for both classes - 0 and 1
+prop.table(table(cars.smote$Target))
+```
+ Running the SMOTE algorithm on the train set, given a balanced proportion of 1's and 0's. Hence they are equal number of car users and non car users. This will be further analysed to understand model performance.  
+ 
+#### LOGISTIC REGRESSION - Original Data
+```{r echo= FALSE}
+
+##LOGISTIC REGRESSION 
+
+#  original model
+LR_Train_model = glm(Target ~ ., data = cars.train, family= binomial)
+summary(LR_Train_model)
+car::vif(LR_Train_model)
+```
+*- This is full model with the original data set, which means including all the variables and with the unbalanced data of 1's and 0's.
+*- Variables that significant are Age, License, Distance and the other variables- MBAs, Work.Exp are less significant at a p-value of 0.05. 
+*- Upon running the **VIF**-  Age, Work Exp, Salary, Distance and License - all turn out to be highly collinear. Hence, we need to drop some variables and re run the model. 
+*- The AIC  of the Full model : AIC 59.330 This will be observed in subsequent stages when we refine the model. The model having least AIC Score would be the most preferred and optimized one.
+
+#### LOGISTIC MODEL - Original Data
+
+After dropping the non significant - Gender, Engineer and highly correlated variables - Age and Work.Exp 
+```{r echo= FALSE}
+LR_org.model1 = glm(Target ~ . -Age -Work.Exp, data = cars.train, family= binomial)
+summary(LR_org.model1)
+car::vif(LR_org.model1) 
+
+
+LR_org.model2 = glm(Target ~ license + Distance + MBA  + Salary, data = cars.train, family= binomial)
+summary(LR_org.model2)
+car::vif(LR_org.model2)
+```
+The AIC has increased to 91.175; but we also notice that the VIF is closer or equal to 1 for the kept variables.
+```{r echo= FALSE}
+LR_org.model3 = glm(Target ~ license + Distance  + Salary , data = cars.train, family= binomial)
+summary(LR_org.model3)
+car::vif(LR_org.model3)
+```
+#AIC has lasted to 92.143; also the variables have a VIF of 1 or closer to 1.
+
+```{r echo= FALSE}
+library(blorr) # to build and validate binary logistic models
+
+
+library(lmtest)
+lrtest(LR_org.model3)
+
+
+# To get the logit R2 of goodness
+#install.packages("pscl")
+library(pscl)
+pR2(LR_Train_model)
+pR2(LR_org.model3)
+```
+
+1. with a significant P value, we can ensure that the logit model is valid.
+
+2. The McFadden value^# of 0.66 with the original model for logistic interprets that the goodness of fit is a reasonably robust model.
+
+ ^#Trust only McFadden since its conservative
+if my McFadden > is between .0 to .10 - Goodness of fit is weak
+if my McFadden > is between .10 to .20 - Goodness of fit is fare
+if my McFadden > is between .20 to .30 - Goodness of fit is Moderately is robust
+if my McFadden > is between .30 and above - Goodness of fit is reasonably robust model
+Typical in non-linear model R2 will be less as against linear regression
+
+```{r echo=FALSE}
+org.odds = exp(coef(LR_org.model3))
+#write.csv(org.odds ,"org.odds_car.csv")
+
+org.odds
+
+#for identifying the relative importance of variables we have to use ODDS instead of PROB
+prob=(org.odds[-1]/(1+org.odds[-1]))
+prob
+```
+
+To explain the probability and odds:
+1. With every unit increase in license by 1 and coefficient being 2.12; there is a 89% probability of an employee to use a car to commute to office; 
+2. With Distance coefficient of 0.3049, with every unit increase in distance by 1 km, there is 57% probability or likelihood that an employee would use a car to commute;
+3. Salary is also a highly significant variable and with every increase in Salary by a lakh,and a coeff of 0.162 the probability of using a car to commute increases by 54.6% approximately;  
+
+```{r echo=FALSE}
+relativeImportance=(org.odds[-1]/sum(org.odds[-1]))*100
+relativeImportance[order(relativeImportance)]
+```
+
+Speaking about relative importance - the most important variables to consider from the logistic regression are having a *License, Distance and Salary* in chronological order.
+
+```{r}
+#checking the confusion matrix for org model
+predTest = predict(LR_org.model3, newdata= cars.test, type="response")
+table(cars.test$Target, predTest>0.5)
+# Accuracy of the model : 0.94 - 94.69%
+# Recall/TPR/Sensitivity : 0.6667 - 66.67%
+# Precision : 0.92 - 92.31%
+# Specificity : 0.9912
+# KS :85%
+#Gini INdex : 0.823
+
+```
+Logistic Model Performance: Original Data  
+Accuracy of the model : 0.94 - 94.69%
+Recall/TPR/Sensitivity : 0.6667 - 66.67%
+Precision : 0.92 - 92.31%
+Specificity : 0.9912
+AUC: 0.91
+KS :72%
+Gini Index : 0.832
+
+```{r echo= FALSE}
+################# Other methods for model performance ############
+
+k = blr_gains_table(LR_org.model3,na.omit(cars.test))
+plot(k)
+
+blr_ks_chart(k, title = "KS Chart",
+             yaxis_title = " ",xaxis_title = "Cumulative Population %",
+             ks_line_color = "black")
+
+blr_confusion_matrix(LR_org.model3, data = cars.test)
+
+blr_gini_index(LR_org.model3, data = na.omit(cars.test))
+
+blr_roc_curve(k, title = "ROC Curve",
+              xaxis_title = "1 - Specificity",
+              yaxis_title = "Sensitivity",roc_curve_col = "blue",
+              diag_line_col = "red", point_shape = 18,
+              point_fill = "blue", point_color = "blue",
+              plot_title_justify = 0.5)  
+
+blr_rsq_mcfadden(LR_org.model3)
+blr_rsq_mcfadden_adj(LR_org.model3)
+```
+
+```{r}
+library(ROCR)
+ROCRpredtest = prediction(predTest, cars.test$Target)
+as.numeric(performance(ROCRpredtest, "auc")@y.values)
+perf1 = performance(ROCRpredtest, "tpr","fpr")
+#plot(perf,col="black",lty=2, lwd=2)
+plot(perf1,lwd=3,colorize = TRUE)
+
+
+KStest <- max(attr(perf1, 'y.values')[[1]]-attr(perf1, 'x.values')[[1]])
+KStest
+
+
+auctest <- performance(ROCRpredtest,"auc"); 
+auctest <- as.numeric(auctest@y.values) 
+
+gini =2*auctest -1
+
+KStest
+auctest
+gini
+```
+
+#### LOGISTIC REGRESSION - SMOTE Data  
+
+```{r echo= FALSE}
+
+
+
+#logistic model on balanced data
+trainctrl<-trainControl(method = 'repeatedcv',number = 10,repeats = 3)
+carsglm<- train(x= cars.smote[,c(1:8)],
+                y=cars.smote[,9],
+                method = "glm", 
+                family = "binomial",
+                trControl = trainctrl)
+
+summary(carsglm$finalModel)
+```
+Running the model on the SMOTE sample data; shows Age, Engineer1, MBA1, Distance are significant variables where as having a license turns out to be less significant; the AIC has also reduced to 68.30; Checking the probability
+
+```{r echo= FALSE}
+carglmcoeff=exp(coef(carsglm$finalModel))
+(carglmcoeff[-1]/(1+carglmcoeff[-1]))
+```
+From the model; it definitely shows that Age, Males, License Holders and Engineers have a higher probability of impacting an employee's decision to use a car to commute office; where as Work Exp, Salary have a 44% and 49% to impact car usage for employees; whereas MBAs have only 4% chance to commute using car.
+```{r echo= FALSE}
+varImp(object = carsglm)
+plot(varImp(object = carsglm), main="Variable Importance for Logistic Regression")
+```
+From the variable importance - Age and Distance turn out to be the most significant variables; 
+```{r echo= FALSE}
+LR.smote.pred<-predict.train(object = carsglm,cars.test[,c(1:8)],type = "raw")
+confusionMatrix(LR.smote.pred,cars.test[,9], positive='1')
+
+
+```
+Model Performance - SMOTE Data
+Accuracy of the model : 0.9545
+Recall/TPR/Sensitivity : 0.8333 83.33%
+Precision : 0.8333 83.33%
+Specificity: 0.9737
+
+Balancing the data set has slightly increased the accuracy from 94.69 to 95.45; it has bettered the recall or true positive rate as well from 69 to 83%, which means  more car users are captured from the model; where as my specificity which is my true negative rate is impacted- which has reduced from 99.12 to 97.37;
+
+### KNN Model
+
+The K nearest Neighbours Model(KNN) measures the Euclidean distance between points close and far in the neighborhood, *Scaling* is an important aspect for running a KNN model else the model would bias itself to higher numeric values. As part of the data preparation for the model, we will do the following:
+ 1. Scale the numeric variables - Age, Work Experience, Salary and Distance
+ 2. Dummy code Gender as Males and Females separately;
+
+```{r echo= FALSE}
+
+library(ISLR)
+#library(caret)
+
+set.seed(400)
+
+#scaling for All Numeric variables
+cars.KNN= scale(cars1[,c("Age", "Work.Exp","Salary","Distance")])
+
+#Dummy code for Gender all factor levels
+gender <- as.data.frame(dummy.code(cars1$Gender))
+carsbinary<- as.data.frame(cars1[,c("Engineer","MBA","license","Target")])
+
+cars.KNN= cbind(cars.KNN,gender,carsbinary)
+
+#Training and Testing of the data
+#Spliting data as training and test set. Using createDataPartition() function from caret
+
+indx<- createDataPartition(y = cars.KNN$Target,p = 0.70,list = FALSE)
+
+trainingKNN <- cars.KNN[indx,]
+testingKNN<- cars.KNN[-indx,]
+
+#Checking distibution in origanl data and partitioned data
+prop.table(table(trainingKNN$Target)) * 100
+
+prop.table(table(testingKNN$Target)) * 100
+
+prop.table(table(cars.KNN$Target)) * 100
+```
+
+#### KNN Model - Original Data  
+```{r echo=FALSE}
+set.seed(400)
+KNNctrl <- trainControl(method="repeatedcv",repeats = 3) #,classProbs=TRUE,summaryFunction = twoClassSummary)
+
+knnFit <- train(Target ~ ., data = trainingKNN, 
+                method = "knn", 
+                trControl = KNNctrl, 
+                preProcess = c("center","scale"), 
+                tuneLength = 20)
+#Output of kNN fit
+knnFit
+
+plot(knnFit, main= "Accuracy with unbalanced sample")
+plot(knnFit, print.thres = 0.5, type="S")
+
+
+#As per the model; accuracy of the model is highest when k= 41.
+
+knnPredict <- data.frame( actual= testingKNN$Target,
+                          predict(knnFit, newdata = testingKNN, type="prob"))
+head(knnPredict)
+
+knnPredict$pred= ifelse(knnPredict$X1> 0.5, 1, 0)
+
+#Get the confusion matrix to see accuracy value and other parameter values
+confusionMatrix(table(knnPredict$pred, testingKNN$Target), positive = "1")
+```
+#As per the KNN model; accuracy of the model is highest when k= 41.
+Accuracy : 0.94 ,94.42%
+sensitivity: 0.61
+Precision (PPV): 1.00
+Specificity :1.00
+Running the KNN model on unbalanced data results in a precision and specificity of 1; which means that the model has correctly predicted all the non car users as per the actual; 
+
+
+#### KNN Model- SMOTE Data
+```{r echo= FALSE }
+
+#SMOTE Model - KNN
+
+smote.KNN<-SMOTE(Target~., trainingKNN, perc.over = 250,perc.under = 150) #with this, there will be an equal split of 0.5 for both classes - 0 and 1
+prop.table(table(smote.KNN$Target))
+
+ctrl <- trainControl(method="repeatedcv",repeats = 3) #,classProbs=TRUE,summaryFunction = twoClassSummary)
+
+knnFit.smote<- train(Target ~ ., data = smote.KNN, 
+                method = "knn", 
+                trControl = KNNctrl, 
+                preProcess = c("center","scale"), 
+                tuneLength = 20)
+
+#Output of kNN fit
+knnFit.smote
+
+head(knnFit.smote$results, 5)
+
+plot(knnFit.smote, main= "Accuracy with balanced sample")
+
+#As per the smote model; accuracy of the model is highest when k= 19.
+
+knnPredict <- data.frame( actual= testingKNN$Target,
+                          predict(knnFit.smote, newdata = testingKNN, type="prob"))
+head(knnPredict)
+
+knnPredict$pred= ifelse(knnPredict$X1> 0.5, 1, 0)
+
+#Get the confusion matrix to see accuracy value and other parameter values
+confusionMatrix(table(knnPredict$pred, testingKNN$Target), positive = "1")
+
+```
+original sample k =41
+Accuracy : 0.94 ,94.42%
+sensitivity: 0.61
+Precision (PPV): 1.000
+specificity : 1.000
+
+smote sample k =19
+Accuracy : 0.9394 
+sensitivity: 0.7778 -77.78%
+Precision (PPV): 0.67778 
+specificity : 0.9649
+
+
+While using the unbalanced data, the accuracy reach when k= 41, where as in balanced data the highest accuracy reached when k=19; but comparing the accuracy is more while using the unbalanced data with 94.4%  which reduced at 93.9% when using the smote data; 
+As the aim is always to maximize the 1's and not at the cost of reducing 0's, which in other words  in our problem statement would be truly capturing the actual car users and at the same time not falsely tagging the non car users as car users which would impact cost if in case any campaign has to be done to target car vs non car users. Sensitivity is higher with SMOTE data at 77% compared to 61% on unbalanced data. 
+
+
+#### NAIVE BAYES - Original Data
+```{r echo= FALSE}
+
+#Naive Bayes
+
+library(e1071)
+
+cars.nb<-naiveBayes(x=cars.train[,1:8], y=cars.train[,9])
+cars.nb$tables
+cars.nb$apriori
+
+
+pred_nb<-predict(cars.nb,newdata = cars.test[,1:8])
+
+confusionMatrix(table(cars.test[,9],pred_nb), positive = "1")
+```
+Model Performance on Original Data -
+Accuracy :0.9545
+Sensitivity: 0.8750
+Precision :0.7778
+Specificity: 0.9655
+
+Interpretation:
+1. Naive Bayes model explains the conditional probabilities of each other predictors in relation with the target; looking at the tables;
+2. For the numeric variables- explanation can be as follows:
+  + The mean Age for employees who use cars to commute was 35.6 years with a standard deviation of 3.21 years;
+  + The Average number of work experience years for car commuters were 15.7 years and non car commuters was 4.9 years, which could mean higher experienced people has more likelihood of using car to commute compared to young professionals
+  + Likewise, higher salary i.e. average salary of a car commuter was 36.5 lakhs per annum with a higher standard deviation of around 13.10 which also means; since this variable has outliers, the distribution is widely spread;
+  + Distance; Average distance for a person using a car to commute from home to office was 15.47 kms compared to average distance of non car users which was 10.83kms. Both Distant and closer living population didn't have  wider gap in terms of their standard deviation which ranged between 3.2 and 3.67 for car and non car commuters resp.
+
+3. For the Binary variables- explanation can be as follows:
+  + Looking at the gender of the commuters - 83% males used car to commute where only 16% females used car to commute to office;
+  + Secondly, out of the 13% car commuters- nearly 86% were engineers and only 18% were MBA's;
+  + Lastly but not least, 83% license holders used car to commute;
+
+#### NAIVE BAYES - SMOTE Data 
+```{r echo= FALSE }
+cars.nb.smote<-naiveBayes(x=cars.smote[,1:8], y=cars.smote[,9])
+cars.nb.smote$tables
+cars.nb.smote$apriori
+
+
+pred_nb_smote<-predict(cars.nb.smote,newdata = cars.test[,1:8])
+
+confusionMatrix(table(cars.test[,9],pred_nb_smote), positive = "1")
+```
+Model Performance on SMOTE Data
+Accuracy: 0.9545
+Sensitivity : 0.8750
+Precision: 0.7778
+Specificity: 0.9655
+
+The smote model has not improved any of the metrics in as compared to model created with the unbalanced and original dataset. Moreover, the conditional probabilities created would also not be considered useful because the probabilities are not actual in terms of the target and predictors variable. Hence using smote date to run a naive bayes is not a very useful technique here.  
+
+
+#### Bagging 
+```{r echo= FALSE}
+#loading a few libraries
+
+library(gbm)          # basic implementation using AdaBoost
+library(xgboost)      # a faster implementation of a gbm
+library(caret)        # an aggregator package for performing many machine learning models
+
+
+#install.packages("devtools")
+#devtools::install_github("gbm-developers/gbm")
+
+
+
+library(ipred)
+library(rpart)
+
+#we can modify the maxdepth and minsplit if needed
+#r doc, https://www.rdocumentation.org/packages/ipred/versions/0.4-0/topics/bagging
+
+cars.bagging <- bagging(Target ~.,
+                          data=cars.train,
+                          control=rpart.control(maxdepth=5, minsplit=15))
+
+
+cars.test$pred.class <- predict(cars.bagging, cars.test)
+
+
+confusionMatrix(table(cars.test$Target,cars.test$pred.class),positive = "1")
+```
+#With Bagging : minsplit=4; maxdepth=5
+#Accuracy: 0.9697
+#Sensitivity/Recall: 1.00
+#Specificity : 0.9661
+#Precision : 0.7778
+
+Changing the minsplit has not changed the accuracy of the model; 
+
+
+
+
+#### Boosting 
+
+#### GBM MODEL - Original Data
+```{r echo= FALSE}
+#GBM
+library(pROC)		
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 10, 
+                     repeats = 10, 
+                     verboseIter = FALSE
+                     )
+
+set.seed(42)
+cars.gbm <- caret::train(Target ~ .,
+                               data = cars.train,
+                               method = "gbm",
+                               preProcess = c("scale", "center"),
+                               trControl = ctrl)
+
+cars.gbm.pred <- data.frame(actual = cars.test$Target,
+                          predict(cars.gbm, newdata = cars.test, type = "prob"))
+cars.gbm.pred$predict <- ifelse(cars.gbm.pred$X1 > 0.5, "1", "0")
+cm_gbm <- confusionMatrix(table(cars.gbm.pred$predict, cars.test$Target), positive= "1")
+cm_gbm
+#checking the AUC
+cars.gbm.ROC <- roc(predictor=cars.gbm.pred$X1, 
+                          response=cars.test$Target,
+                          levels=rev(levels(cars.test$Target)))
+cars.gbm.ROC$auc
+```
+
+The gbm model with original data
+Accuracy :0.9697
+Sensitivity : 0.7778
+Specificity: 1.000
+Precision PPV: 1.000
+
+```{r echo= FALSE}
+varImp(object= cars.gbm)
+plot(varImp(object = cars.gbm), main="Variable Importance for gbm model")
+```
+
+From the gbm model: Age and Salary are the most important predictors, followed by Distance, Work.Exp. Surprisingly License holders has 4.47% importance; where males and Engineers are of no importance to the model
+
+```{r echo= FALSE}
+cars.gbm$bestTune
+cars.gbm$finalModel
+```
+
+The model performed 100 iterations and minimum observations in a node were 10; where the model identified as 6 variables has non zero influence; which can be explored by the variable importance plot.
+
+#### GBM Model -SMOTE data
+```{r echo= FALSE}
+cars.gbm.smote <- caret::train(Target ~ .,
+                         data = cars.smote,
+                         method = "gbm",
+                         preProcess = c("scale", "center"),
+                         trControl = ctrl)
+cars.gbm.pred.smote<- data.frame(actual = cars.test$Target,
+                            predict(cars.gbm.smote, newdata = cars.test, type = "prob"))
+cars.gbm.pred.smote$predict <- ifelse(cars.gbm.pred.smote$X1 > 0.5, "1", "0")
+cm_gbm_sm <- confusionMatrix(table(cars.gbm.pred.smote$predict, cars.test$Target), positive= "1")
+
+cm_gbm_sm
+#checking the AUC
+cars.smote.gbm.ROC <- roc(predictor=cars.gbm.pred.smote$X1, 
+                          response=cars.test$Target,
+                          levels=rev(levels(cars.test$Target)))
+cars.smote.gbm.ROC$auc
+
+
+plot(varImp(object = cars.gbm.smote), main="Variable Importance for smote gbm model")
+```
+
+The gbm model with smoted data
+Accuracy :0.9697
+Sensitivity : 0.8333
+Specificity: 0.9912
+Precision PPV: 0.9375
+Area under the curve: 0.9756
+GBM model on the smoted data though has changed the Accuracy, but sensitivity has increased from 77.78 to 83.33; where specificity i.e. true negatives which is non car users is being penalized where the model misses 1 non car user. The AUC has also reduced from 0.9951 to 0.9756 while using Original to Smote Data. 
+The variable importance plot from the smote data depicts that Age is the most important predictor deriving the usage of car.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
